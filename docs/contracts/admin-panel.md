@@ -224,3 +224,70 @@
 - Frontend puede empezar a maquetar pantallas contra estos contratos de inmediato, usando datos simulados (mock) con esta misma forma de JSON — no necesita esperar a que backend tenga nada implementado.
 - Cualquier cambio a un contrato debe discutirse entre ambos equipos antes de implementarlo: mientras no exista una spec OpenAPI generada, este documento es la fuente de verdad.
 - Pendiente de decidir: formalizar esto en OpenAPI para generar un mock server y tipos TypeScript automáticamente, y así evitar que el documento se desincronice del código real.
+
+## 4. Citas / agendamiento (módulo confirmado, no estaba en el análisis original)
+
+La consultoría ofrece servicios que el público agenda como cita, presencial (en una oficina) o en línea. **No requiere cuenta**: se agenda con nombre, correo y teléfono directamente.
+
+### Modelo de cita
+
+```json
+{
+  "id": "uuid",
+  "usuario_id": "uuid | null",
+  "nombre": "string",
+  "correo": "string",
+  "telefono": "string | null",
+  "servicio_id": "uuid",
+  "oficina_id": "uuid | null",
+  "modalidad": "presencial | en_linea",
+  "fecha_hora": "ISO8601",
+  "duracion_minutos": "number",
+  "estado": "pendiente | confirmada | cancelada | completada",
+  "notas": "string | null"
+}
+```
+
+### GET /servicios
+
+- Rol: público
+- Response 200: lista de servicios activos (para mostrar en landing y formulario de reserva)
+
+### GET /oficinas
+
+- Rol: público
+- Response 200: lista de oficinas activas (para elegir sede si la modalidad es presencial)
+
+### GET /citas/disponibilidad
+
+- Rol: público
+- Query: `servicio_id`, `oficina_id` (si es presencial), `fecha`
+- Response 200: horarios libres ese día para ese servicio/oficina
+- Regla: calculado a partir de `duracion_minutos` del servicio y las citas ya ocupadas
+
+### POST /citas
+
+- Rol: público (sin cuenta) o usuario autenticado
+- Request: `{ nombre, correo, telefono, servicio_id, oficina_id, modalidad, fecha_hora }`
+- Response 201: cita creada con `estado = pendiente`
+- Reglas:
+  - Si `modalidad = presencial`, `oficina_id` es obligatorio
+  - `duracion_minutos` se toma del servicio, no lo envía el cliente
+  - Se valida que el horario siga disponible antes de confirmar (evita doble reserva)
+
+### GET /citas
+
+- Rol: admin, editor
+- Query: `estado`, `fecha`, `servicio_id`, `oficina_id`, `page`
+- Response 200: lista paginada de citas
+
+### PATCH /citas/:id
+
+- Rol: admin, editor
+- Request: `{ estado, notas? }`
+- Response 200
+- Uso: confirmar, cancelar o marcar como completada una cita
+
+## Nota sobre roles (actualizado)
+
+`usuarios.rol` es solo **admin** y **editor** — las dos personas que entran al panel. No hay rol "cliente": quien agenda una cita lo hace sin necesidad de cuenta (ver sección 4). No hay registro público; las cuentas las crea un admin (ver sección 1).
