@@ -53,7 +53,7 @@ func abrirBD() (*sql.DB, error) {
 // middleware aplica CORS y cabeceras de seguridad a todas las rutas.
 func middleware(siguiente http.Handler) http.Handler {
 	permitidos := map[string]bool{}
-	for _, o := range strings.Split(env("CORS_ORIGINS", "http://127.0.0.1:5500,http://localhost:5500"), ",") {
+	for _, o := range strings.Split(env("CORS_ORIGINS", "http://127.0.0.1:5500,http://localhost:5500,http://localhost:5173,http://127.0.0.1:5173"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			permitidos[o] = true
 		}
@@ -67,7 +67,8 @@ func middleware(siguiente http.Handler) http.Handler {
 		if origen := r.Header.Get("Origin"); origen != "" && permitidos[origen] {
 			h.Set("Access-Control-Allow-Origin", origen)
 			h.Set("Vary", "Origin")
-			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Credentials", "true")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			h.Set("Access-Control-Max-Age", "600")
 		}
@@ -97,7 +98,7 @@ func main() {
 	// --- Aquí se registra cada área del equipo ---
 	registrarContacto(mux, db)
 	// registrarChatbot(mux, db)
-	// registrarPanel(mux, db)
+	registrarPanel(mux, db)
 	// registrarBlog(mux, db)
 	// registrarNube(mux, db)
 
