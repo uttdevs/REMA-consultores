@@ -1,0 +1,35 @@
+[
+  {
+    "id": "ejemplo-01",
+    "slug": "mejora-tus-finanzas-empresariales",
+    "title": "Mejora tus finanzas empresariales",
+    "author": "Artículo de ejemplo",
+    "category": "Finanzas",
+    "summary": "Estrategias prácticas para optimizar el flujo de efectivo y tomar mejores decisiones informadas.",
+    "content": "Mantener unas finanzas ordenadas es fundamental para la continuidad de cualquier empresa. Conviene revisar los ingresos y egresos, preparar un presupuesto realista y conocer los ciclos de cobro y pago.\n\nUna herramienta útil es la proyección periódica del flujo de efectivo. Permite anticipar momentos en los que podrían faltar recursos y preparar alternativas con tiempo.\n\nAdemás, es importante interpretar los estados financieros y monitorear los indicadores que realmente influyen en la operación. Cada negocio tiene necesidades particulares, por lo que la planeación debe ajustarse a sus características.",
+    "image": "/images/blog-finanzas.webp",
+    "createdAt": "2026-11-01T12:00:00.000Z"
+  },
+  {
+    "id": "ejemplo-02",
+    "slug": "aspectos-clave-del-derecho-corporativo",
+    "title": "Aspectos clave del derecho corporativo",
+    "author": "Artículo de ejemplo",
+    "category": "Derecho corporativo",
+    "summary": "Conoce los elementos fundamentales para una estructura legal sólida y segura.",
+    "content": "El derecho corporativo contribuye a que las empresas funcionen dentro de una estructura legal clara. Desde la constitución de una sociedad hasta la revisión de contratos, las decisiones jurídicas acompañan a la operación cotidiana.\n\nEs recomendable documentar acuerdos, definir responsabilidades y mantener actualizada la información corporativa.\n\nUn análisis preventivo permite identificar riesgos antes de que se conviertan en conflictos y facilita el crecimiento de la organización.",
+    "image": "/images/blog-corporativo.webp",
+    "createdAt": "2026-10-27T12:00:00.000Z"
+  },
+  {
+    "id": "ejemplo-03",
+    "slug": "cumplimiento-fiscal-sin-complicaciones",
+    "title": "Cumplimiento fiscal sin complicaciones",
+    "author": "Artículo de ejemplo",
+    "category": "Fiscalidad",
+    "summary": "Una guía práctica y preventiva para mantener tu empresa al día con sus obligaciones fiscales.",
+    "content": "El cumplimiento fiscal requiere atención constante a las obligaciones aplicables al negocio. Tener ordenada la documentación y conocer las fechas relevantes facilita la gestión de impuestos y declaraciones.\n\nContar con registros adecuados es importante tanto para la operación diaria como para la preparación de información ante la autoridad.\n\nPara un caso concreto conviene buscar asesoría profesional que considere la actividad, el régimen y las circunstancias de la empresa.",
+    "image": "/images/blog-fiscal.webp",
+    "createdAt": "2026-10-19T12:00:00.000Z"
+  }
+]
