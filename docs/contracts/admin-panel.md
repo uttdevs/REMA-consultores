@@ -219,17 +219,127 @@
 - Query: `usuario_id`, `tipo` (subida/descarga/eliminacion), `page`
 - Response 200: lista paginada `{ usuario_id, accion, archivo_id, fecha }`
 
-## Notas para ambos equipos
+## 4. Contacto y Agendamiento de Citas (RF-01, RF-02)
 
-- Frontend puede empezar a maquetar pantallas contra estos contratos de inmediato, usando datos simulados (mock) con esta misma forma de JSON — no necesita esperar a que backend tenga nada implementado.
-- Cualquier cambio a un contrato debe discutirse entre ambos equipos antes de implementarlo: mientras no exista una spec OpenAPI generada, este documento es la fuente de verdad.
-- Pendiente de decidir: formalizar esto en OpenAPI para generar un mock server y tipos TypeScript automáticamente, y así evitar que el documento se desincronice del código real.
+Este módulo unifica todas las vías por las cuales el público y los clientes se comunican con la consultoría desde el sitio institucional:
+1. **Formulario de contacto general:** Envío de consultas y mensajes asíncronos sin fecha fija.
+2. **Agendamiento de citas:** Reserva formal de asesorías en fecha y hora específica, en modalidad presencial (oficina) o en línea. **No requiere cuenta de usuario previa**: se agenda directamente con nombre, correo y teléfono.
 
-## 4. Citas / agendamiento (módulo confirmado, no estaba en el análisis original)
+---
 
-La consultoría ofrece servicios que el público agenda como cita, presencial (en una oficina) o en línea. **No requiere cuenta**: se agenda con nombre, correo y teléfono directamente.
+### 4.1 Formulario de contacto general (RF-02)
 
-### Modelo de cita
+Recepción y validación de mensajes del formulario "Envíanos un mensaje". Se almacenan en la tabla `mensajes_contacto` y disparan un acuse de recibo automático por correo electrónico.
+
+#### Modelo de mensaje de contacto
+
+```json
+{
+  "id": 1,
+  "nombre": "string",
+  "empresa": "string | null",
+  "telefono": "string | null",
+  "correo": "string",
+  "asunto": "string",
+  "mensaje": "string",
+  "acepta_privacidad": true,
+  "acepta_privacidad_en": "ISO8601 | null",
+  "creado_en": "ISO8601"
+}
+```
+
+#### POST /api/contacto (alias `/api/v1/contacto`)
+
+- Rol requerido: ninguno (público)
+- Headers: `Content-Type: application/json`
+- Tamaño máximo del body: 16 KB (`16384 bytes`)
+- Límite de tasa (Rate Limiting / Antispam):
+  - Máximo **5 mensajes por IP** en una ventana de **10 minutos**.
+  - Si se supera el límite: HTTP 429 con cabecera `Retry-After: 600`.
+- Request body:
+
+```json
+{
+  "nombre": "string",
+  "empresa": "string (opcional)",
+  "telefono": "string (opcional)",
+  "correo": "string",
+  "asunto": "string",
+  "mensaje": "string",
+  "acepta_privacidad": true
+}
+```
+
+- Reglas de validación:
+  - Se eliminan espacios en blanco al inicio y final (`trim`) de todas las cadenas de texto.
+  - `nombre`: obligatorio, máximo 100 caracteres, sin caracteres de control (`unicode.IsControl`), UTF-8 válido.
+  - `empresa`: opcional, máximo 120 caracteres, sin caracteres de control. Si no se envía o está en blanco, se persiste como `NULL`.
+  - `telefono`: opcional. Si se envía, debe tener entre 7 y 20 caracteres y cumplir con la expresión regular `^[0-9+()\-. ]{7,20}$` (dígitos y símbolos `+`, `(`, `)`, `-`, `.`, espacios). Si no se envía o está en blanco, se persiste como `NULL`.
+  - `correo`: obligatorio, máximo 150 caracteres, formato RFC 5322 válido (`mail.ParseAddress`), con `@` y dominio con punto (sin caracteres de control ni espacios).
+  - `asunto`: obligatorio, máximo 150 caracteres, sin caracteres de control.
+  - `mensaje`: obligatorio, máximo 3000 caracteres (columna `TEXT`). Permite saltos de línea y tabuladores (`\n`, `\r`, `\t`), pero ningún otro carácter de control.
+  - `acepta_privacidad`: booleano (`true` | `false`). Si es `true`, en BD se guarda `acepta_privacidad = 1` y se estampa la fecha/hora en `acepta_privacidad_en = NOW()`.
+
+- Response 201 Created:
+
+```json
+{
+  "ok": true,
+  "mensaje": "¡Gracias! Recibimos tu mensaje y te enviamos un correo de confirmación."
+}
+```
+
+- Errores posibles:
+  - **400 Bad Request**: JSON inválido o mal formado.
+    ```json
+    { "ok": false, "error": "JSON inválido." }
+    ```
+  - **405 Method Not Allowed**: Método distinto a POST.
+    - Cabecera: `Allow: POST, OPTIONS`
+    ```json
+    { "ok": false, "error": "Método no permitido." }
+    ```
+  - **413 Request Entity Too Large**: El cuerpo excede los 16 KB.
+    ```json
+    { "ok": false, "error": "El mensaje es demasiado grande." }
+    ```
+  - **415 Unsupported Media Type**: No se envió cabecera `Content-Type: application/json`.
+    ```json
+    { "ok": false, "error": "Envía los datos como JSON." }
+    ```
+  - **422 Unprocessable Entity**: Errores de validación en campos individuales.
+    ```json
+    {
+      "ok": false,
+      "error": "Revisa los campos marcados.",
+      "campos": {
+        "nombre": "Este campo es obligatorio.",
+        "correo": "Correo no válido.",
+        "telefono": "Teléfono no válido (7 a 20 dígitos; puedes usar + ( ) - .)."
+      }
+    }
+    ```
+  - **429 Too Many Requests**: Límite de 5 envíos por IP en 10 minutos excedido.
+    - Cabecera: `Retry-After: 600`
+    ```json
+    { "ok": false, "error": "Demasiados mensajes. Intenta de nuevo en unos minutos." }
+    ```
+  - **500 Internal Server Error**: Error en el servidor o la base de datos al guardar el mensaje.
+    ```json
+    { "ok": false, "error": "No pudimos guardar tu mensaje. Intenta más tarde." }
+    ```
+
+- Efectos secundarios y persistencia:
+  - **Base de datos (MySQL/MariaDB)**: Inserción directa y parametrizada en la tabla `mensajes_contacto`.
+  - **Confirmación por correo (asíncrona)**: Si las credenciales SMTP (`SMTP_HOST`, `SMTP_USER`, etc.) están configuradas en `.env`, se despacha en segundo plano (`goroutine`) un correo de confirmación al remitente mediante STARTTLS (puerto 587) o TLS (puerto 465) codificado en Base64. Si SMTP falla o no está configurado, el mensaje queda almacenado y la respuesta HTTP 201 no se interrumpe.
+
+---
+
+### 4.2 Agendamiento de citas y asesorías
+
+Módulo para reserva de citas con disponibilidad en tiempo real y gestión desde el panel de administración.
+
+#### Modelo de cita
 
 ```json
 {
@@ -248,24 +358,24 @@ La consultoría ofrece servicios que el público agenda como cita, presencial (e
 }
 ```
 
-### GET /servicios
+#### GET /servicios
 
 - Rol: público
-- Response 200: lista de servicios activos (para mostrar en landing y formulario de reserva)
+- Response 200: lista de servicios activos (para mostrar en landing y selector de reserva)
 
-### GET /oficinas
+#### GET /oficinas
 
 - Rol: público
 - Response 200: lista de oficinas activas (para elegir sede si la modalidad es presencial)
 
-### GET /citas/disponibilidad
+#### GET /citas/disponibilidad
 
 - Rol: público
 - Query: `servicio_id`, `oficina_id` (si es presencial), `fecha`
 - Response 200: horarios libres ese día para ese servicio/oficina
 - Regla: calculado a partir de `duracion_minutos` del servicio y las citas ya ocupadas
 
-### POST /citas
+#### POST /citas
 
 - Rol: público (sin cuenta) o usuario autenticado
 - Request: `{ nombre, correo, telefono, servicio_id, oficina_id, modalidad, fecha_hora }`
@@ -275,18 +385,24 @@ La consultoría ofrece servicios que el público agenda como cita, presencial (e
   - `duracion_minutos` se toma del servicio, no lo envía el cliente
   - Se valida que el horario siga disponible antes de confirmar (evita doble reserva)
 
-### GET /citas
+#### GET /citas
 
 - Rol: admin, editor
 - Query: `estado`, `fecha`, `servicio_id`, `oficina_id`, `page`
 - Response 200: lista paginada de citas
 
-### PATCH /citas/:id
+#### PATCH /citas/:id
 
 - Rol: admin, editor
 - Request: `{ estado, notas? }`
 - Response 200
 - Uso: confirmar, cancelar o marcar como completada una cita
+
+## Notas para ambos equipos
+
+- Frontend puede empezar a maquetar pantallas contra estos contratos de inmediato, usando datos simulados (mock) con esta misma forma de JSON — no necesita esperar a que backend tenga nada implementado.
+- Cualquier cambio a un contrato debe discutirse entre ambos equipos antes de implementarlo: mientras no exista una spec OpenAPI generada, este documento es la fuente de verdad.
+- Pendiente de decidir: formalizar esto en OpenAPI para generar un mock server y tipos TypeScript automáticamente, y así evitar que el documento se desincronice del código real.
 
 ## Nota sobre roles (actualizado)
 
