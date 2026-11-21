@@ -46,7 +46,9 @@ type contactoEntrada struct {
 
 // registrarContacto es la ÚNICA función que el main.go común necesita llamar.
 func registrarContacto(mux *http.ServeMux, db *sql.DB) {
-	mux.HandleFunc("/api/contacto", contactoHandler(db))
+	h := contactoHandler(db)
+	mux.HandleFunc("/api/contacto", h)
+	mux.HandleFunc("/api/v1/contacto", h)
 }
 
 func contactoHandler(db *sql.DB) http.HandlerFunc {
