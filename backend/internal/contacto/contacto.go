@@ -1,4 +1,4 @@
-package main
+package contacto
 
 // MÓDULO CONTACTO: POST /api/contacto
 // Recibe el formulario "Envíanos un mensaje", lo valida, lo guarda en
@@ -44,12 +44,15 @@ type contactoEntrada struct {
 	AceptaPrivacidad bool   `json:"acepta_privacidad"`
 }
 
-// registrarContacto es la ÚNICA función que el main.go común necesita llamar.
-func registrarContacto(mux *http.ServeMux, db *sql.DB) {
+// RegistrarRutas registra las rutas del módulo de contacto en el mux HTTP.
+func RegistrarRutas(mux *http.ServeMux, db *sql.DB) {
 	h := contactoHandler(db)
 	mux.HandleFunc("/api/contacto", h)
 	mux.HandleFunc("/api/v1/contacto", h)
 }
+
+// Registrar es un alias conveniente de RegistrarRutas.
+var Registrar = RegistrarRutas
 
 func contactoHandler(db *sql.DB) http.HandlerFunc {
 	limitador := &contactoLimitador{
@@ -98,27 +101,27 @@ func contactoHandler(db *sql.DB) http.HandlerFunc {
 
 		if _, err := contactoGuardar(r.Context(), db, &in); err != nil {
 			// El detalle solo va al log, nunca al cliente.
-			log.Printf("contacto: error al guardar: %v", err)
+			log.Printf("contacto: error al guardar en BD: %v", err)
 			contactoError(w, http.StatusInternalServerError, "No pudimos guardar tu mensaje. Intenta más tarde.", nil)
 			return
 		}
 
-		// El correo se manda aparte: si falla, el mensaje ya quedó guardado.
-		go func(nombre, correo, asunto string) {
-			if err := contactoEnviarConfirmacion(nombre, correo, asunto); err != nil {
-				log.Printf("contacto: correo de confirmación no enviado: %v", err)
+		go func(nombre, destino, asunto string) {
+			if err := contactoEnviarConfirmacion(nombre, destino, asunto); err != nil {
+				log.Printf("contacto: no se pudo enviar correo a %s: %v", destino, err)
 			}
 		}(in.Nombre, in.Correo, in.Asunto)
 
-		contactoResponder(w, http.StatusCreated, map[string]any{
+		contactoResponder(w, http.StatusOK, map[string]any{
 			"ok":      true,
-			"mensaje": "¡Gracias! Recibimos tu mensaje y te enviamos un correo de confirmación.",
+			"mensaje": "Mensaje recibido. Te responderemos pronto.",
 		})
 	}
 }
 
-// contactoValidar limpia (trim) y valida. Devuelve campo -> error.
 func contactoValidar(in *contactoEntrada) map[string]string {
+	errs := map[string]string{}
+
 	in.Nombre = strings.TrimSpace(in.Nombre)
 	in.Empresa = strings.TrimSpace(in.Empresa)
 	in.Telefono = strings.TrimSpace(in.Telefono)
@@ -126,51 +129,57 @@ func contactoValidar(in *contactoEntrada) map[string]string {
 	in.Asunto = strings.TrimSpace(in.Asunto)
 	in.Mensaje = strings.TrimSpace(in.Mensaje)
 
-	errs := map[string]string{}
-
 	contactoLinea(errs, "nombre", in.Nombre, contactoMaxNombre, true)
 	contactoLinea(errs, "empresa", in.Empresa, contactoMaxEmpresa, false)
+
+	if in.Telefono != "" {
+		contactoLinea(errs, "telefono", in.Telefono, contactoMaxTelefono, false)
+		if _, ok := errs["telefono"]; !ok && !contactoRegexTelefono.MatchString(in.Telefono) {
+			errs["telefono"] = "Teléfono inválido (ejemplo: +52 55 1234 5678)."
+		}
+	}
+
+	if in.Correo == "" {
+		errs["correo"] = "El correo es obligatorio."
+	} else if utf8.RuneCountInString(in.Correo) > contactoMaxCorreo {
+		errs["correo"] = "El correo no puede exceder 150 caracteres."
+	} else if !contactoCorreoValido(in.Correo) {
+		errs["correo"] = "Escribe un correo válido (ejemplo: nombre@empresa.com)."
+	}
+
 	contactoLinea(errs, "asunto", in.Asunto, contactoMaxAsunto, true)
 
-	if in.Telefono != "" && !contactoRegexTelefono.MatchString(in.Telefono) {
-		errs["telefono"] = "Teléfono no válido (7 a 20 dígitos; puedes usar + ( ) - .)."
-	}
-
-	switch {
-	case in.Correo == "":
-		errs["correo"] = "Este campo es obligatorio."
-	case utf8.RuneCountInString(in.Correo) > contactoMaxCorreo:
-		errs["correo"] = "Máximo 150 caracteres."
-	case !contactoCorreoValido(in.Correo):
-		errs["correo"] = "Correo no válido."
-	}
-
-	switch {
-	case in.Mensaje == "":
-		errs["mensaje"] = "Este campo es obligatorio."
-	case !utf8.ValidString(in.Mensaje) || contactoTieneControl(in.Mensaje, true):
+	if in.Mensaje == "" {
+		errs["mensaje"] = "El mensaje es obligatorio."
+	} else if utf8.RuneCountInString(in.Mensaje) > contactoMaxMensaje {
+		errs["mensaje"] = "El mensaje no puede exceder 3 000 caracteres."
+	} else if contactoTieneControl(in.Mensaje, true) {
 		errs["mensaje"] = "El mensaje contiene caracteres no permitidos."
-	case utf8.RuneCountInString(in.Mensaje) > contactoMaxMensaje:
-		errs["mensaje"] = "Máximo 3000 caracteres."
 	}
+
+	if !in.AceptaPrivacidad {
+		errs["acepta_privacidad"] = "Debes aceptar el aviso de privacidad para continuar."
+	}
+
 	return errs
 }
 
 func contactoLinea(errs map[string]string, campo, valor string, max int, obligatorio bool) {
-	switch {
-	case valor == "":
+	if valor == "" {
 		if obligatorio {
 			errs[campo] = "Este campo es obligatorio."
 		}
-	case !utf8.ValidString(valor) || contactoTieneControl(valor, false):
-		errs[campo] = "Contiene caracteres no permitidos."
-	case utf8.RuneCountInString(valor) > max:
-		errs[campo] = "Demasiado largo."
+		return
+	}
+	if utf8.RuneCountInString(valor) > max {
+		errs[campo] = "No puede exceder los caracteres permitidos."
+		return
+	}
+	if contactoTieneControl(valor, false) {
+		errs[campo] = "No se permiten saltos de línea ni caracteres de control."
 	}
 }
 
-// contactoTieneControl detecta caracteres de control (NUL, saltos de línea, etc.).
-// Si permitirSaltos es true, acepta \n, \r y \t (para el campo mensaje).
 func contactoTieneControl(s string, permitirSaltos bool) bool {
 	for _, r := range s {
 		if permitirSaltos && (r == '\n' || r == '\r' || r == '\t') {
@@ -198,7 +207,7 @@ func contactoCorreoValido(c string) bool {
 func contactoResponder(w http.ResponseWriter, estado int, cuerpo any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(estado)
-	json.NewEncoder(w).Encode(cuerpo)
+	_ = json.NewEncoder(w).Encode(cuerpo)
 }
 
 func contactoError(w http.ResponseWriter, estado int, mensaje string, campos map[string]string) {
