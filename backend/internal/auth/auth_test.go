@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"context"
@@ -186,7 +186,6 @@ func TestUsuarioConvertirAPublico(t *testing.T) {
 	}
 }
 
-
 func TestMiddlewareRequerirAutenticadoSinCredenciales(t *testing.T) {
 	handler := requerirAutenticado(nil, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -313,7 +312,6 @@ func TestActualizarUsuarioNoPermiteAutoDesactivacion(t *testing.T) {
 		t.Errorf("código de error esperado: CANNOT_DEACTIVATE_SELF, obtenido: %s", errResp.Error.Code)
 	}
 }
-
 
 func TestLoginHandlerValidacionesHTTP(t *testing.T) {
 	limitador := nuevoAuthLimitador()

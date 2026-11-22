@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"strings"
@@ -14,25 +14,24 @@ type authLimitador struct {
 }
 
 type intentoRegistro struct {
-	fallos        int
+	fallos         int
 	bloqueadoHasta time.Time
-	ultimoFallo   time.Time
+	ultimoFallo    time.Time
 }
 
 func nuevoAuthLimitador() *authLimitador {
 	l := &authLimitador{
 		intentos: make(map[string]*intentoRegistro),
 	}
-	// Limpieza periódica cada 10 minutos
+	// Rutina de limpieza periódica para evitar fugas de memoria
 	go l.limpiezaPeriodica(10 * time.Minute)
 	return l
 }
 
 func (l *authLimitador) clave(ip, email string) string {
-	return strings.ToLower(strings.TrimSpace(ip)) + "|" + strings.ToLower(strings.TrimSpace(email))
+	return strings.ToLower(strings.TrimSpace(ip)) + ":" + strings.ToLower(strings.TrimSpace(email))
 }
 
-// estaBloqueado revisa si la combinación IP+email está bloqueada temporalmente.
 func (l *authLimitador) estaBloqueado(ip, email string) (bool, time.Duration) {
 	l.Lock()
 	defer l.Unlock()
@@ -48,15 +47,21 @@ func (l *authLimitador) estaBloqueado(ip, email string) (bool, time.Duration) {
 		return true, reg.bloqueadoHasta.Sub(ahora)
 	}
 
-	// Si el bloqueo ya expiró, reseteamos el registro
+	// Si expiró el bloqueo, resetear
 	if !reg.bloqueadoHasta.IsZero() && ahora.After(reg.bloqueadoHasta) {
 		delete(l.intentos, k)
+		return false, 0
+	}
+
+	// Si los fallos ocurrieron hace más de 15 minutos sin llegar a bloquearse, expirar
+	if ahora.Sub(reg.ultimoFallo) > 15*time.Minute {
+		delete(l.intentos, k)
+		return false, 0
 	}
 
 	return false, 0
 }
 
-// registrarFallo contabiliza un fallo. Si alcanza 5 fallos, activa el bloqueo de 15 min.
 func (l *authLimitador) registrarFallo(ip, email string) (bloqueado bool, restante time.Duration) {
 	l.Lock()
 	defer l.Unlock()
@@ -67,23 +72,21 @@ func (l *authLimitador) registrarFallo(ip, email string) (bloqueado bool, restan
 
 	if !existe {
 		reg = &intentoRegistro{
-			fallos:      1,
+			fallos:      0,
 			ultimoFallo: ahora,
 		}
 		l.intentos[k] = reg
-		return false, 0
 	}
 
-	// Si el último fallo fue hace más de 15 minutos y no estaba bloqueado, reiniciamos la cuenta
+	// Si el último fallo fue hace más de 15 min y no estaba bloqueado, reiniciar contador
 	if reg.bloqueadoHasta.IsZero() && ahora.Sub(reg.ultimoFallo) > 15*time.Minute {
-		reg.fallos = 1
-		reg.ultimoFallo = ahora
-		return false, 0
+		reg.fallos = 0
 	}
 
 	reg.fallos++
 	reg.ultimoFallo = ahora
 
+	// 5 fallos => Bloqueo por 15 minutos
 	if reg.fallos >= 5 {
 		reg.bloqueadoHasta = ahora.Add(15 * time.Minute)
 		return true, 15 * time.Minute
@@ -92,7 +95,6 @@ func (l *authLimitador) registrarFallo(ip, email string) (bloqueado bool, restan
 	return false, 0
 }
 
-// registrarExito borra el historial de fallos cuando el usuario se loguea correctamente.
 func (l *authLimitador) registrarExito(ip, email string) {
 	l.Lock()
 	defer l.Unlock()
@@ -101,12 +103,13 @@ func (l *authLimitador) registrarExito(ip, email string) {
 
 func (l *authLimitador) limpiezaPeriodica(intervalo time.Duration) {
 	ticker := time.NewTicker(intervalo)
-	for ahora := range ticker.C {
+	for range ticker.C {
 		l.Lock()
+		ahora := time.Now()
 		for k, reg := range l.intentos {
-			// Si expiró el bloqueo o no ha habido actividad en más de 30 minutos
-			if (!reg.bloqueadoHasta.IsZero() && ahora.After(reg.bloqueadoHasta)) ||
-				(reg.bloqueadoHasta.IsZero() && ahora.Sub(reg.ultimoFallo) > 30*time.Minute) {
+			if !reg.bloqueadoHasta.IsZero() && ahora.After(reg.bloqueadoHasta) {
+				delete(l.intentos, k)
+			} else if reg.bloqueadoHasta.IsZero() && ahora.Sub(reg.ultimoFallo) > 30*time.Minute {
 				delete(l.intentos, k)
 			}
 		}

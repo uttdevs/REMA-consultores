@@ -1,4 +1,4 @@
-package main
+package contacto
 
 // MÓDULO CONTACTO: guardado en la tabla mensajes_contacto.
 //

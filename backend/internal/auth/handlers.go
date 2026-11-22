@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func responderJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
-// responderError escribe un error en el formato contractual { "error": { "code": "...", "message": "..." } }.
+// responderError escribe un error estandarizado según el contrato.
 func responderError(w http.ResponseWriter, status int, code, message string) {
 	responderJSON(w, status, ErrorRespuesta{
 		Error: DetalleError{
@@ -34,7 +34,7 @@ func responderError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// extraerIPCliente obtiene la IP real de la solicitud, soportando cabeceras de proxy.
+// extraerIPCliente obtiene la dirección IP remota normalizada.
 func extraerIPCliente(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		partes := strings.Split(xff, ",")
@@ -45,29 +45,32 @@ func extraerIPCliente(r *http.Request) string {
 			}
 		}
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+	ip := r.RemoteAddr
+	if host, _, err := strings.Cut(r.RemoteAddr, ":"); err {
+		return host
 	}
-	return contactoIP(r)
+	return ip
 }
 
-// obtenerParametroID extrae el identificador {id} de la URL de forma segura.
+// obtenerParametroID extrae el parámetro {id} de la ruta utilizando r.PathValue si está disponible (Go 1.22+).
 func obtenerParametroID(r *http.Request) string {
-	if id := r.PathValue("id"); id != "" {
-		return id
+	if val := r.PathValue("id"); val != "" {
+		return strings.TrimSpace(val)
 	}
-	partes := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// Fallback por análisis manual de la URL
+	path := strings.Trim(r.URL.Path, "/")
+	partes := strings.Split(path, "/")
 	if len(partes) > 0 {
 		return partes[len(partes)-1]
 	}
 	return ""
 }
 
+// -------------------------------------------------------------
+// Controladores de Autenticación
+// -------------------------------------------------------------
+
 // loginHandler maneja POST /auth/login
-// Reglas:
-// - Límite de intentos: 5 fallidos → bloqueo temporal de 15 min por IP+email
-// - Cookie HttpOnly con 8h de inactividad
-// - Respuesta 200 con el objeto user
 func loginHandler(db *sql.DB, limitador *authLimitador) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -453,8 +456,8 @@ func eliminarUsuarioHandler(db *sql.DB) http.HandlerFunc {
 	return requerirRol(db, []string{RolAdmin}, eliminarUsuarioCore(db))
 }
 
-// registrarPanel registra todas las rutas de autenticación y gestión de usuarios (RF-04).
-func registrarPanel(mux *http.ServeMux, db *sql.DB) {
+// RegistrarRutas registra todas las rutas de autenticación y gestión de usuarios (RF-04).
+func RegistrarRutas(mux *http.ServeMux, db *sql.DB) {
 	// Auto-asegurar tablas en la base de datos
 	go func() {
 		if err := authCrearTablasSiNoExisten(context.Background(), db); err != nil {
@@ -497,3 +500,7 @@ func registrarPanel(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("DELETE /api/v1/usuarios/{id}", hEliminar)
 	mux.HandleFunc("DELETE /usuarios/{id}", hEliminar)
 }
+
+// Registrar y RegistrarPanel son alias convenientes para RegistrarRutas.
+var Registrar = RegistrarRutas
+var RegistrarPanel = RegistrarRutas

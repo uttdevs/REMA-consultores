@@ -1,4 +1,4 @@
-package main
+package contacto
 
 // MÓDULO CONTACTO: correo de confirmación por SMTP (solo librería estándar).
 // Puerto 587 usa STARTTLS; puerto 465 usa TLS directo. Nunca se envía en claro.
@@ -17,6 +17,8 @@ import (
 	"net/smtp"
 	"strings"
 	"time"
+
+	"rema-backend/internal/config"
 )
 
 type correoConfig struct {
@@ -25,13 +27,13 @@ type correoConfig struct {
 
 func correoLeerConfig() (correoConfig, bool) {
 	c := correoConfig{
-		host:     env("SMTP_HOST", ""),
-		puerto:   env("SMTP_PORT", "587"),
-		usuario:  env("SMTP_USER", ""),
-		clave:    env("SMTP_PASS", ""),
-		nombreDe: env("SMTP_FROM_NAME", "REMA Consultores"),
+		host:     config.Get("SMTP_HOST", ""),
+		puerto:   config.Get("SMTP_PORT", "587"),
+		usuario:  config.Get("SMTP_USER", ""),
+		clave:    config.Get("SMTP_PASS", ""),
+		nombreDe: config.Get("SMTP_FROM_NAME", "REMA Consultores"),
 	}
-	c.de = env("SMTP_FROM", c.usuario)
+	c.de = config.Get("SMTP_FROM", c.usuario)
 	return c, c.host != "" && c.usuario != "" && c.clave != "" && c.de != ""
 }
 
